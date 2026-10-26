@@ -1,0 +1,198 @@
+package com.vehicle.service.controller;
+
+import com.vehicle.service.entity.*;
+import com.vehicle.service.repository.*;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.List;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/technician")
+public class TechnicianDashboardController {
+
+    private final TechnicianRepository technicians;
+    private final TechnicianAssignmentRepository assignments;
+    private final ServiceBookingRepository bookings;
+    private final VehicleRepository vehicles;
+
+    public TechnicianDashboardController(
+            TechnicianRepository technicians,
+            TechnicianAssignmentRepository assignments,
+            ServiceBookingRepository bookings,
+            VehicleRepository vehicles) {
+        this.technicians = technicians;
+        this.assignments = assignments;
+        this.bookings = bookings;
+        this.vehicles = vehicles;
+    }
+
+    private Long currentTechnicianId(Authentication authentication) {
+        if (authentication == null
+                || authentication.getAuthorities().stream()
+                .noneMatch(a -> a.getAuthority().equals("ROLE_TECHNICIAN"))
+                || !(authentication.getPrincipal() instanceof Long)) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED, "Technician login required");
+        }
+        return (Long) authentication.getPrincipal();
+    }
+
+    @GetMapping("/me")
+    public TechnicianProfile me(Authentication authentication) {
+        Long id = currentTechnicianId(authentication);
+
+        Technician technician = technicians.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Technician not found"));
+
+        return new TechnicianProfile(
+                technician.getId(),
+                technician.getName(),
+                technician.getEmail(),
+                technician.getPhone(),
+                technician.getSpecialization(),
+                technician.getApprovalStatus()
+        );
+    }
+
+    @GetMapping("/jobs")
+    @Transactional(readOnly = true)
+    public List<JobResponse> jobs(Authentication authentication) {
+        Long id = currentTechnicianId(authentication);
+
+        return assignments.findByTechnicianId(id)
+                .stream()
+                .map(this::toJobResponse)
+                .toList();
+    }
+
+    @GetMapping("/jobs/{id}")
+    @Transactional(readOnly = true)
+    public JobResponse jobDetails(
+            @PathVariable Long id,
+            Authentication authentication) {
+
+        Long technicianId = currentTechnicianId(authentication);
+
+        TechnicianAssignment assignment = assignments.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Job not found"));
+
+        if (!technicianId.equals(assignment.getTechnicianId())) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND, "Job not found");
+        }
+
+        return toJobResponse(assignment);
+    }
+
+    @PatchMapping("/jobs/{id}/status")
+    @Transactional
+    public JobResponse updateStatus(
+            @PathVariable Long id,
+            @RequestBody StatusRequest request,
+            Authentication authentication) {
+
+        Long technicianId = currentTechnicianId(authentication);
+
+        TechnicianAssignment assignment = assignments.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Job not found"));
+
+        if (!technicianId.equals(assignment.getTechnicianId())) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND, "Job not found");
+        }
+
+        ServiceBooking booking = bookings
+                .findById(assignment.getBookingId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Booking not found"));
+
+        if (request == null || request.status() == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "Status is required");
+        }
+
+        String next = request.status().trim().toUpperCase();
+
+        Map<String, String> allowedTransitions = Map.of(
+                "ASSIGNED", "INSPECTION",
+                "INSPECTION", "DIAGNOSIS",
+                "DIAGNOSIS", "IN_PROGRESS",
+                "IN_PROGRESS", "COMPLETED"
+        );
+
+        String current = booking.getStatus();
+
+        if (!next.equals(allowedTransitions.get(current))) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Invalid status transition from " + current
+                            + " to " + next);
+        }
+
+        booking.setStatus(next);
+        bookings.save(booking);
+
+        return toJobResponse(assignment);
+    }
+
+    private JobResponse toJobResponse(TechnicianAssignment assignment) {
+        ServiceBooking booking = bookings
+                .findById(assignment.getBookingId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Booking not found"));
+
+        Vehicle vehicle = vehicles.findById(booking.getVehicleId())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "Vehicle not found"));
+
+        return new JobResponse(
+                assignment.getId(),
+                booking.getId(),
+                assignment.getAssignedAt(),
+                booking.getServiceType(),
+                booking.getServiceDate(),
+                booking.getServiceTime(),
+                booking.getProblemDescription(),
+                booking.getStatus(),
+                vehicle.getId(),
+                vehicle.getMake(),
+                vehicle.getModel(),
+                vehicle.getRegistrationNumber()
+        );
+    }
+
+    public record TechnicianProfile(
+            Long id,
+            String name,
+            String email,
+            String phone,
+            String specialization,
+            String approvalStatus
+    ) {}
+
+    public record JobResponse(
+            Long assignmentId,
+            Long bookingId,
+            java.time.LocalDateTime assignedAt,
+            String serviceType,
+            java.time.LocalDate serviceDate,
+            String serviceTime,
+            String problemDescription,
+            String status,
+            Long vehicleId,
+            String vehicleMake,
+            String vehicleModel,
+            String registrationNumber
+    ) {}
+
+    public record StatusRequest(String status) {}
+}

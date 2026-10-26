@@ -1,0 +1,117 @@
+package com.vehicle.service.security;
+
+import com.vehicle.service.entity.Admin;
+import com.vehicle.service.entity.Customer;
+import com.vehicle.service.repository.AdminRepository;
+import com.vehicle.service.repository.CustomerRepository;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+import java.util.List;
+
+@Component
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtService jwtService;
+    private final CustomerRepository customerRepository;
+    private final AdminRepository adminRepository;
+
+    public JwtAuthenticationFilter(
+            JwtService jwtService,
+            CustomerRepository customerRepository,
+            AdminRepository adminRepository) {
+        this.jwtService = jwtService;
+        this.customerRepository = customerRepository;
+        this.adminRepository = adminRepository;
+    }
+
+    @Override
+    protected void doFilterInternal(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            FilterChain filterChain)
+            throws ServletException, IOException {
+
+        String header = request.getHeader("Authorization");
+
+        if (header != null
+                && header.startsWith("Bearer ")
+                && SecurityContextHolder.getContext()
+                        .getAuthentication() == null) {
+
+            String token = header.substring(7);
+
+            if (jwtService.isTokenValid(token)) {
+                try {
+                    String subject = jwtService.extractSubject(token);
+
+                    if (subject.startsWith("ADMIN:")) {
+                        Long adminId = Long.parseLong(
+                                subject.substring(6)
+                        );
+
+                        Admin admin = adminRepository.findById(adminId)
+                                .orElse(null);
+
+                        if (admin != null
+                                && "ADMIN".equals(admin.getRole())) {
+
+                            setAuthentication(
+                                    admin.getId(),
+                                    "ROLE_ADMIN"
+                            );
+                        }
+
+                    } else if (subject.matches("[0-9]+")) {
+
+                        Long customerId = Long.parseLong(subject);
+
+                        Customer customer = customerRepository
+                                .findById(customerId)
+                                .orElse(null);
+
+                        if (customer != null
+                                && "CUSTOMER".equals(customer.getRole())) {
+
+                            setAuthentication(
+                                    customer.getId(),
+                                    "ROLE_CUSTOMER"
+                            );
+                        }
+                    }
+
+                } catch (IllegalArgumentException ex) {
+                    SecurityContextHolder.clearContext();
+                }
+            }
+        }
+
+        filterChain.doFilter(request, response);
+    }
+
+    private void setAuthentication(Long id, String role) {
+        var authorities = List.of(
+                new SimpleGrantedAuthority(role)
+        );
+
+        var authentication =
+                new UsernamePasswordAuthenticationToken(
+                        id,
+                        null,
+                        authorities
+                );
+
+        SecurityContextHolder.getContext()
+                .setAuthentication(authentication);
+    }
+}

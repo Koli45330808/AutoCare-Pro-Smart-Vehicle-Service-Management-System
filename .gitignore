@@ -1,0 +1,13 @@
+node_modules/
+target/
+dist/
+build/
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+*.log
+application-local.properties
+application-local.yml
+application-local.yaml

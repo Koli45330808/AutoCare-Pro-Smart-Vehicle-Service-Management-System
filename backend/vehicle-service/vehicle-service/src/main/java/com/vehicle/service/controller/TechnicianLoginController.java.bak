@@ -1,0 +1,27 @@
+package com.vehicle.service.controller;
+
+import com.vehicle.service.dto.TechnicianLoginRequest;
+import com.vehicle.service.service.TechnicianLoginService;
+
+import jakarta.validation.Valid;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/technician/auth")
+public class TechnicianLoginController {
+
+    private final TechnicianLoginService technicianLoginService;
+
+    public TechnicianLoginController(
+            TechnicianLoginService technicianLoginService) {
+        this.technicianLoginService = technicianLoginService;
+    }
+
+    @PostMapping("/login")
+    public Map<String, Object> login(
+            @Valid @RequestBody TechnicianLoginRequest request) {
+        return technicianLoginService.login(request);
+    }
+}

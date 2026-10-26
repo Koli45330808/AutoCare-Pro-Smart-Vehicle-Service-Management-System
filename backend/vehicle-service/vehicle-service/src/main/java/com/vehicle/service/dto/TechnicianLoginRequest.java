@@ -1,0 +1,9 @@
+package com.vehicle.service.dto;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+
+public record TechnicianLoginRequest(
+        @NotBlank @Email String email,
+        @NotBlank String password
+) {}

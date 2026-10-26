@@ -1,0 +1,85 @@
+package com.vehicle.service.security;
+
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.security.Keys;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import javax.crypto.SecretKey;
+import java.nio.charset.StandardCharsets;
+import java.util.Date;
+
+@Service
+public class JwtService {
+
+    private final SecretKey secretKey;
+
+    private static final long EXPIRATION_TIME = 86400000L;
+
+    public JwtService(@Value("${app.jwt.secret}") String secret) {
+        this.secretKey = Keys.hmacShaKeyFor(
+                secret.getBytes(StandardCharsets.UTF_8)
+        );
+    }
+
+    public String generateToken(Long customerId) {
+        Date now = new Date();
+        Date expiry = new Date(now.getTime() + EXPIRATION_TIME);
+
+        return Jwts.builder()
+                .subject(String.valueOf(customerId))
+                .issuedAt(now)
+                .expiration(expiry)
+                .signWith(secretKey)
+                .compact();
+    }
+
+    public Long extractCustomerId(String token) {
+        Claims claims = Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+
+        return Long.parseLong(claims.getSubject());
+    }
+
+    public boolean isTokenValid(String token) {
+        try {
+            Claims claims = Jwts.parser()
+                    .verifyWith(secretKey)
+                    .build()
+                    .parseSignedClaims(token)
+                    .getPayload();
+
+            return claims.getExpiration() != null
+                    && claims.getExpiration().after(new Date());
+
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
+    }
+    public String generateAdminToken(Long adminId) {
+    Date now = new Date();
+    Date expiry = new Date(now.getTime() + EXPIRATION_TIME);
+
+    return Jwts.builder()
+            .subject("ADMIN:" + adminId)
+            .issuedAt(now)
+            .expiration(expiry)
+            .signWith(secretKey)
+            .compact();
+}
+
+    public String extractSubject(String token) {
+        return Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload()
+                .getSubject();
+    }
+}
